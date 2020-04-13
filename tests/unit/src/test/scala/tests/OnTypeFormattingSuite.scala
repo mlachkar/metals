@@ -168,7 +168,7 @@ class OnTypeFormattingSuite extends BaseLspSuite("onTypeFormatting") {
        |  | a multiline
        |  | string
        |  '''.stripMargin
-       |  
+       |
        |}""".stripMargin
   )
 
@@ -253,11 +253,23 @@ class OnTypeFormattingSuite extends BaseLspSuite("onTypeFormatting") {
     s"""
        |object Main {
        |  val str = '''
-       |  |word this is a `|` 
+       |  |word this is a `|`
        |  |sign
        |  '''.stripMargin
        |}
        |""".stripMargin
+  )
+  check(
+    "correct-string",
+    s"""
+       |object Main {
+       |  val str = "test1@@ test2"
+       |}""".stripMargin,
+    s"""
+       |object Main {
+       |  val str = "test2" +
+       |    " test1"
+       |}""".stripMargin
   )
 
   def check(

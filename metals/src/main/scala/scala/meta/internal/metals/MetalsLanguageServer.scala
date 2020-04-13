@@ -180,8 +180,9 @@ class MetalsLanguageServer(
   private var renameProvider: RenameProvider = _
   private var documentHighlightProvider: DocumentHighlightProvider = _
   private var formattingProvider: FormattingProvider = _
-  private var multilineStringFormattingProvider
-      : MultilineStringFormattingProvider = _
+  private val multilineStringFormattingProvider
+      : MultilineStringFormattingProvider =
+    new MultilineStringFormattingProvider(buffers)
   private var initializeParams: Option[InitializeParams] = None
   private var clientExperimentalCapabilities: ClientExperimentalCapabilities =
     ClientExperimentalCapabilities.Default
@@ -374,9 +375,6 @@ class MetalsLanguageServer(
       buildTargetClasses,
       compilations,
       languageClient
-    )
-    multilineStringFormattingProvider = new MultilineStringFormattingProvider(
-      buffers
     )
     referencesProvider = new ReferenceProvider(
       workspace,

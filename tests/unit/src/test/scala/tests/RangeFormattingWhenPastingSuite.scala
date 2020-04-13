@@ -301,6 +301,24 @@ class RangeFormattingWhenPastingSuite extends BaseLspSuite("rangeFormatting") {
        |}""".stripMargin
   )
 
+  // Not working because of ifPipeInScope
+//  check(
+//    "no-pipe-string",
+//    s"""
+//       |object Main {
+//       |  val s = ''' example@@
+//       |  word'''.stripMargin
+//       |}""".stripMargin,
+//    s"""| |first line
+//        | |second line""".stripMargin,
+//    s"""
+//       object Main {
+//       |  val s = ''' example |first line
+//       |   |second line
+//       |  word'''.stripMargin
+//       |}""".stripMargin
+//  )
+
   def check(
       name: String,
       testCase: String,

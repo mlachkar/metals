@@ -110,60 +110,100 @@ final class MultilineStringFormattingProvider(
     pipeBetweenLastLineAndPos != -1 || pipeBetweenSelection != -1
   }
 
+  def extractTokensInRange(
+      tokens: Tokens,
+      start: meta.Position,
+      end: meta.Position
+  ): List[(Token, Int)] =
+    tokens.zipWithIndex.filter {
+      case (token, _) =>
+        inToken(start, end, token)
+    }.toList
+
   private def multilineStringInTokens(
       tokens: Tokens,
       startPos: meta.Position,
       endPos: meta.Position,
-      sourceText: String
+      sourceText: String,
+      newlineAdded: Boolean
   ): Boolean = {
-    var tokenIndex = 0
-    var stringFound = false
-    var shouldAddPipes = false
-    while (!stringFound && tokenIndex < tokens.size) {
-      tokens(tokenIndex) match {
-        case token: Constant.String if inToken(startPos, endPos, token) =>
-          stringFound = true
-          shouldAddPipes = isMultilineString(sourceText, token) &&
-            hasStripMarginSuffix(tokenIndex, tokens)
-        case start: Interpolation.Start if start.start < startPos.start =>
-          var endIndex = tokenIndex + 1
+    if (pipeInScope(startPos, endPos, sourceText, newlineAdded)) {
+      def shouldFormatMultiString: PartialFunction[(Token, Int), Boolean] = {
+        case (token: Constant.String, index: Int) =>
+          isMultilineString(sourceText, token) && hasStripMarginSuffix(
+            index,
+            tokens
+          ) && inToken(startPos, endPos, token)
+      }
+
+      def shouldFormatInterpolationString
+          : PartialFunction[(Token, Int), Boolean] = {
+        case (token: Interpolation.Start, index: Int)
+            if token.start < startPos.start => {
+          var endIndex = index + 1
           while (!tokens(endIndex)
               .isInstanceOf[Interpolation.End]) endIndex += 1
-          val end = tokens(endIndex)
-          stringFound = end.end > startPos.end
-          shouldAddPipes =
-            stringFound && isMultilineString(sourceText, start) &&
-              hasStripMarginSuffix(endIndex, tokens)
-        case _ =>
+          isMultilineString(sourceText, token) && hasStripMarginSuffix(
+            endIndex,
+            tokens
+          )
+        }
       }
-      tokenIndex += 1
-    }
-    shouldAddPipes
+      tokens.zipWithIndex
+        .exists(
+          shouldFormatMultiString orElse shouldFormatInterpolationString orElse {
+            case _ => false
+          }
+        )
+    } else false
   }
 
-  private def withToken(
-      textId: TextDocumentIdentifier,
-      range: Range,
-      newlineAdded: Boolean
-  )(fn: (String, meta.Position) => List[TextEdit]): Future[List[TextEdit]] =
-    Future {
-      val source = textId.getUri.toAbsolutePath
-      if (source.exists) {
-        val sourceText = buffer.get(source).getOrElse("")
-        val virtualFile = Input.VirtualFile(source.toString(), sourceText)
-        val startPos = range.getStart.toMeta(virtualFile)
-        val endPos = range.getEnd.toMeta(virtualFile)
-        if (pipeInScope(startPos, endPos, sourceText, newlineAdded)) {
-          val tokens =
-            virtualFile.tokenize.toOption
-          tokens
-            .filter(multilineStringInTokens(_, startPos, endPos, sourceText))
-            .map(_ => fn(sourceText, startPos))
-            .getOrElse(Nil)
-        } else Nil
-      } else Nil
-    }
+  private def withTokenOpt(textId: TextDocumentIdentifier, range: Range)(
+      fn: (
+          meta.Position,
+          meta.Position,
+          String,
+          Option[Tokens]
+      ) => List[TextEdit]
+  ): Future[List[TextEdit]] = {
+    val source = textId.getUri.toAbsolutePath
+    if (source.exists) {
+      val sourceText = buffer.get(source).getOrElse("")
+      val virtualFile = Input.VirtualFile(source.toString(), sourceText)
+      val startPos = range.getStart.toMeta(virtualFile)
+      val endPos = range.getEnd.toMeta(virtualFile)
+      Future { fn(startPos, endPos, sourceText, virtualFile.tokenize.toOption) }
+    } else Future.successful(Nil)
+  }
+  private def doubleQuoteNotClosed(
+      sourceText: String,
+      position: Position
+  ): Boolean = {
+    val splitLines = sourceText.split('\n')
+    val lineBefore = splitLines(position.getLine - 1)
+    lineBefore.count(_ == '"') % 2 != 0
+  }
 
+  private def tryToIndent(
+      sourceText: String,
+      newlineAdded: Boolean,
+      position: Position
+  ): List[TextEdit] = {
+    if (newlineAdded && doubleQuoteNotClosed(sourceText, position)) {
+      val precedentLine = position.getLine - 1
+      val lines = sourceText.split('\n')
+      val lineText = lines(precedentLine)
+      val lastChar = lineText.size
+      val endPrecedentLine = new Position(precedentLine, lastChar)
+      val textEditPrecedentLine = new TextEdit(
+        new Range(endPrecedentLine, endPrecedentLine),
+        "\"" + " " + "+"
+      )
+      val textEditcurrentLine =
+        new TextEdit(new Range(position, position), "\"")
+      List(textEditPrecedentLine, textEditcurrentLine)
+    } else Nil
+  }
   private def formatPipeLine(
       line: Int,
       lines: Array[String],
@@ -206,25 +246,49 @@ final class MultilineStringFormattingProvider(
     val range = new Range(params.getPosition, params.getPosition)
     val doc = params.getTextDocument()
     val newlineAdded = params.getCh() == "\n"
-    withToken(doc, range, newlineAdded) { (sourceText, position) =>
-      List(indent(sourceText, params.getPosition))
+    withTokenOpt(doc, range) { (startPos, endPos, sourceText, tokens) =>
+      tokens match {
+        case Some(tokens) =>
+          if (multilineStringInTokens(
+              tokens,
+              startPos,
+              endPos,
+              sourceText,
+              newlineAdded
+            )) {
+            List(indent(sourceText, params.getPosition))
+          } else Nil
+        case None => tryToIndent(sourceText, newlineAdded, params.getPosition)
+//          if (stringInTokens(params.getPosition, sourceText)) {
+//            indentString(sourceText, newlineAdded, params.getPosition)
+      }
     }
   }
 
   def format(params: DocumentRangeFormattingParams): Future[List[TextEdit]] = {
-    val source = params.getTextDocument.getUri.toAbsolutePath
     val range = params.getRange()
     val doc = params.getTextDocument()
-    withToken(doc, range, newlineAdded = false) { (sourceText, position) =>
+    withTokenOpt(doc, range) { (startPos, endPos, sourceText, tokens) =>
       val splitLines = sourceText.split('\n')
       // position.startLine since we want to check current line on rangeFormatting
-      val defaultIndent = determineDefaultIndent(splitLines, position.startLine)
-      val linesToFormat =
-        range.getStart().getLine().to(range.getEnd().getLine())
-
-      linesToFormat
-        .flatMap(line => formatPipeLine(line, splitLines, defaultIndent))
-        .toList
+      val defaultIndent = determineDefaultIndent(splitLines, startPos.startLine)
+      tokens match {
+        case Some(tokens) =>
+          if (multilineStringInTokens(
+              tokens,
+              startPos,
+              endPos,
+              sourceText,
+              false
+            )) {
+            val linesToFormat =
+              range.getStart().getLine().to(range.getEnd().getLine())
+            linesToFormat
+              .flatMap(line => formatPipeLine(line, splitLines, defaultIndent))
+              .toList
+          } else Nil
+        case None => Nil
+      }
     }
   }
 
