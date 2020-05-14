@@ -542,7 +542,7 @@ class MetalsLanguageServer(
       capabilities.setRenameProvider(renameOptions)
       capabilities.setDocumentHighlightProvider(true)
       capabilities.setDocumentOnTypeFormattingProvider(
-        new DocumentOnTypeFormattingOptions("\n")
+        new DocumentOnTypeFormattingOptions("\n", List("\"").asJava)
       )
       capabilities.setDocumentRangeFormattingProvider(
         initialConfig.allowMultilineStringFormatting
