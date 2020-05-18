@@ -77,6 +77,7 @@ case class ScalaPresentationCompiler(
       config: PresentationCompilerConfig
   ): PresentationCompiler =
     copy(config = config)
+
   def this() = this(buildTargetIdentifier = "")
 
   val compilerAccess =
@@ -148,7 +149,10 @@ case class ScalaPresentationCompiler(
       source: String
   ): CompletableFuture[ju.List[TextEdit]] =
     CompletableFuture.supplyAsync(
-      () => MultilineStringFormattingProvider.format(params, source).asJava,
+      () =>
+        MultilineStringFormattingProvider
+          .format(params, source, config.isStripMarginEnabledOnTypeFormatting)
+          .asJava,
       ec
     )
 

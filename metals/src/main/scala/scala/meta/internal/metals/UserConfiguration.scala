@@ -34,7 +34,8 @@ case class UserConfiguration(
     bloopVersion: Option[String] = None,
     pantsTargets: Option[List[String]] = None,
     superMethodLensesEnabled: Boolean = false,
-    remoteLanguageServer: Option[String] = None
+    remoteLanguageServer: Option[String] = None,
+    enableStripMarginOnTypeFormatting: Boolean = true
 ) {
 
   def currentBloopVersion: String =
@@ -270,6 +271,8 @@ object UserConfiguration {
       getBooleanKey("super-method-lenses-enabled").getOrElse(false)
     val remoteLanguageServer =
       getStringKey("remote-language-server")
+    val enableStripMarginOnTypeFormatting =
+      getBooleanKey("enable-strip-margin-on-type-formatting").getOrElse(true)
     if (errors.isEmpty) {
       Right(
         UserConfiguration(
@@ -286,7 +289,8 @@ object UserConfiguration {
           bloopVersion,
           pantsTargets,
           superMethodLensesEnabled,
-          remoteLanguageServer
+          remoteLanguageServer,
+          enableStripMarginOnTypeFormatting
         )
       )
     } else {
