@@ -206,6 +206,7 @@ class MetalsLanguageServer(
   private var debugProvider: DebugProvider = _
   private var symbolSearch: MetalsSymbolSearch = _
   private var compilers: Compilers = _
+  private var scalafixProvider: ScalafixProvider = _
   def loadedPresentationCompilerCount(): Int =
     compilers.loadedPresentationCompilerCount()
   var tables: Tables = _
@@ -509,9 +510,12 @@ class MetalsLanguageServer(
       compilers,
       definitionIndex
     )
+    scalafixProvider =
+      ScalafixProvider(buildTargets, buffers, workspace, embedded, statusBar)
     codeActionProvider = new CodeActionProvider(
       compilers,
-      buffers
+      buffers,
+      scalafixProvider
     )
     doctor = new Doctor(
       workspace,
@@ -636,7 +640,11 @@ class MetalsLanguageServer(
       if (initializeParams.supportsCodeActionLiterals) {
         capabilities.setCodeActionProvider(
           new CodeActionOptions(
-            List(CodeActionKind.QuickFix, CodeActionKind.Refactor).asJava
+            List(
+              CodeActionKind.QuickFix,
+              CodeActionKind.Refactor,
+              CodeActionKind.SourceOrganizeImports
+            ).asJava
           )
         )
       } else {
@@ -1157,10 +1165,12 @@ class MetalsLanguageServer(
       params: DocumentFormattingParams
   ): CompletableFuture[util.List[TextEdit]] =
     CancelTokens.future { token =>
-      formattingProvider.format(
-        params.getTextDocument.getUri.toAbsolutePath,
-        token
-      )
+      {
+        formattingProvider.format(
+          params.getTextDocument.getUri.toAbsolutePath,
+          token
+        )
+      }
     }
 
   @JsonRequest("textDocument/onTypeFormatting")
@@ -1506,6 +1516,7 @@ class MetalsLanguageServer(
         ammonite.stop()
       case ServerCommands.NewScalaProject() =>
         newProjectProvider.createNewProjectFromTemplate().asJavaObject
+
       case cmd =>
         scribe.error(s"Unknown command '$cmd'")
         Future.successful(()).asJavaObject
