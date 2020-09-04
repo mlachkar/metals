@@ -83,7 +83,7 @@ case class ScalafixProvider(
       scalaVersion = scalaBuildTarget.getScalaVersion
       semanticdbTarget = scalacOptions.targetroot(scalaVersion).toNIO
       scalaBinaryVersion = scalaBuildTarget.getScalaBinaryVersion
-      classPath = scalacOptions.getClasspath.map(AbsolutePath(_).toNIO)
+      classPath = scalacOptions.getClasspath.map(_.toAbsolutePath.toNIO)
       _ = classPath.add(semanticdbTarget)
     } yield (scalaVersion, scalaBinaryVersion, classPath)
   }
