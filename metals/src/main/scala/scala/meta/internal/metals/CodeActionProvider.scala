@@ -19,7 +19,8 @@ final class CodeActionProvider(
     new ImportMissingSymbol(compilers),
     new CreateNewSymbol(),
     new StringActions(buffers),
-    new OrganizeImports(scalafixProvider)
+    new OrganizeImports(scalafixProvider),
+    new ExplicitResultType(scalafixProvider)
   )
 
   def codeActions(

@@ -7,11 +7,9 @@ import java.util.Optional
 
 import scala.collection.mutable
 import scala.util.Try
-
 import scala.meta._
 import scala.meta.internal.metals.MetalsEnrichments._
 import scala.meta.io.AbsolutePath
-
 import org.eclipse.{lsp4j => l}
 import scalafix.interfaces.Scalafix
 import scalafix.interfaces.ScalafixArguments
@@ -61,6 +59,45 @@ case class ScalafixProvider(
     fixedOpt.map(getTextEditsFrom(_, input)).getOrElse(Nil)
   }
 
+  def explicitResultType(
+      file: AbsolutePath,
+      range: l.Range
+  ): List[l.TextEdit] = {
+    val input = file.toInputFromBuffers(buffers)
+    val resOpt = for {
+      (scalaVersion, scalaBinaryVersion, classPath) <-
+        getScalaVersionAndClassPath(file)
+      _ = scribe.info(s"scalaVersion = ${scalaVersion}")
+      api <- getOrUpdateScalafixCache(scalaBinaryVersion)
+      scalafixArgs = configureApi(api, scalaVersion, classPath)
+      _ = scribe.info(s"api = ${api}")
+    } yield {
+      scalafixArgs
+        .withConfig(Optional.empty())
+        .withRules(List("ExplicitResultTypes").asJava)
+        .withParsedArguments(
+          List("--settings.ExplicitResultTypes.skipSimpleDefinitions = false").asJava
+        )
+        .withPaths(List(file.toNIO).asJava)
+        .withSourceroot(workspace.toNIO)
+        .evaluate()
+    }
+    scribe.info(s"resOpt $resOpt")
+    for {
+    fixed <- resOpt
+    _ = scribe.info(s"fixed.getMessageError.asScala = ${fixed.getMessageError.asScala}")
+    _ = scribe.info(s"fixed.getErrors.toList = ${fixed.getErrors.toList}")
+    fileEval <- fixed.getFileEvaluations.headOption
+    } yield ()
+
+    val fixedOpt = resOpt
+      .flatMap(result => result.getFileEvaluations.headOption)
+      .flatMap(_.previewPatches().asScala)
+
+    fixedOpt.map(f => getTextEditFrom(f, range, input)).getOrElse(Nil)
+
+  }
+
   private def getTextEditsFrom(
       fixed: String,
       input: Input
@@ -71,6 +108,22 @@ case class ScalafixProvider(
     } else {
       Nil
     }
+  }
+
+  private def getTextEditFrom(
+      fixed: String,
+      range: l.Range,
+      input: Input
+  ): List[l.TextEdit] = {
+    val splitLines = fixed.split('\n')
+    val fixedLine = splitLines(range.getStart.getLine)
+    val endLine = input.text.split('\n')(range.getStart.getLine).size
+    scribe.info(s"fixedLine is $fixedLine")
+    val newRange = new l.Range(
+      new l.Position(range.getStart.getLine, 0),
+      new l.Position(range.getStart.getLine, endLine)
+    )
+    List(new l.TextEdit(newRange, fixedLine))
   }
 
   private def getScalaVersionAndClassPath(
